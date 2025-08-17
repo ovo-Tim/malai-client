@@ -103,7 +103,8 @@ jobs:
 
       - name: Rename APK file
         run: |
-          mv ./src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk ./src-tauri/gen/android/app/build/outputs/apk/universal/release/${{env.APP_NAME}}-${{ steps.app-version.outputs.version_string }}.apk
+          ls ./src-tauri/gen/android/app/build/outputs/apk/universal/release/
+          mv ./src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk ./src-tauri/gen/android/app/build/outputs/apk/universal/release/${{env.APP_NAME}}-${{ steps.app-version.outputs.version_string }}.apk
 
       - name: Publish
         uses: softprops/action-gh-release@v1
