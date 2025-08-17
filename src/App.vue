@@ -29,7 +29,7 @@
         <q-list bordered padding class="server-list" @click="onListBackgroundClick" style="height: 100%;"
           :class="{ 'phone-mode-list': phone_mode }">
           <q-item v-for="item in items" :key="item.id" clickable :class="{ 'selected': item.selected }"
-            @click="onItemClick($event, item)" @dblclick="openEditDialog(item)"
+            @click="onItemClick($event as MouseEvent, item)" @dblclick="openEditDialog(item)"
             @pointerdown="startLongPress($event, item)" @pointerup="cancelLongPress()" @pointerleave="cancelLongPress()"
             @pointercancel="cancelLongPress()">
             <q-item-section>
@@ -37,7 +37,7 @@
                 <div>
                   <div class="text-weight-semibold">{{ item.name }}</div>
                   <div class="text-caption">Listen port:{{ item.port
-                    }}</div>
+                  }}</div>
                 </div>
                 <div class="text-caption q-ml-md">{{ item.note }}</div>
               </div>
