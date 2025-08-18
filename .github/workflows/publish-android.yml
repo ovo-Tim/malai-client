@@ -113,6 +113,6 @@ jobs:
           tag_name: app-v${{ steps.app-version.outputs.version_string }}
           body: "See the assets to download this version and install."
           draft: false
-          prerelease: false
+          prerelease: true
           files: |
             ./src-tauri/gen/android/app/build/outputs/apk/universal/release/${{env.APP_NAME}}-${{ steps.app-version.outputs.version_string }}.apk
