@@ -2,6 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
   "windows": [
     "main"
   ],
@@ -9,8 +14,6 @@
     "core:default",
     "opener:default",
     "store:default",
-    "os:default",
-    "opener:default",
-    "notification:default"
+    "os:default"
   ]
 }
