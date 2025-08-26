@@ -1,6 +1,6 @@
 [package]
 name = "malai-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Tauri App"
 authors = ["ovo-tim"]
 edition = "2024"
