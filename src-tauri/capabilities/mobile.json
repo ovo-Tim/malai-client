@@ -1,6 +1,6 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
-    "identifier": "default",
+    "identifier": "capability-mobile",
     "description": "Capability for the main window",
     "platforms": [
         "android"
