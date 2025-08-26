@@ -35,3 +35,10 @@ iroh = "=0.35.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-notification = "2"
+
+[profile.release]
+codegen-units = 1 # Allows LLVM to perform better optimization.
+lto = true        # Enables link-time-optimizations.
+opt-level = 3
+panic = "abort"   # Higher performance by disabling panic handlers.
+strip = true      # Ensures debug symbols are removed.
