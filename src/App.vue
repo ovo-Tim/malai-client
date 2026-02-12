@@ -35,7 +35,10 @@
             <q-item-section>
               <div class="row items-center justify-between">
                 <div>
-                  <div class="text-weight-semibold">{{ item.name }}</div>
+                  <div class="text-weight-semibold">{{ item.name }}
+                    <q-badge :color="item.type === 'http' ? 'blue' : item.type === 'tcp' ? 'orange' : item.type === 'udp' ? 'green' : 'purple'"
+                      class="q-ml-sm">{{ (item.type || 'http').toUpperCase() }}</q-badge>
+                  </div>
                   <div class="text-caption">Listen port:{{ item.port
                   }}</div>
                 </div>
@@ -76,9 +79,11 @@
                 <q-input v-model="add_dialog.model.name" label="Name" autofocus />
                 <q-input v-model="add_dialog.model.url" label="URL(start with kulfi://)" class="q-mt-sm" />
                 <q-input v-model.number="add_dialog.model.port" label="Listen port" type="number" class="q-mt-sm" />
+                <q-select v-model="add_dialog.model.type" :options="connectionTypeOptions" label="Connection type"
+                  emit-value map-options class="q-mt-sm" />
                 <q-input v-model="add_dialog.model.note" label="Note" type="textarea" class="q-mt-sm" />
-                <q-checkbox v-model="add_dialog.model.openInBrowser" label="Open in browser when service starts"
-                  class="q-mt-sm" />
+                <q-checkbox v-if="add_dialog.model.type === 'http'" v-model="add_dialog.model.openInBrowser"
+                  label="Open in browser when service starts" class="q-mt-sm" />
               </q-form>
             </q-card-section>
 
@@ -110,6 +115,8 @@ watch(() => dark_mode.value, (v) => {
   $q.dark.set(v)
 })
 
+type ConnectionType = 'http' | 'tcp' | 'udp' | 'tcp-udp'
+
 // Persisted config shape (stored / exported)
 interface ItemConfig {
   id: string
@@ -118,6 +125,7 @@ interface ItemConfig {
   port: number | null
   note: string
   openInBrowser: boolean
+  type: ConnectionType
 }
 
 // Full runtime shape (adds transient state)
@@ -133,20 +141,20 @@ function toConfig(item: Item): ItemConfig {
 }
 
 function toItem(config: ItemConfig): Item {
-  return { ...config, running: false, selected: false, loading: false }
+  return { ...config, type: config.type || 'http', running: false, selected: false, loading: false }
 }
 
 // Reactive list of items (local state). Replace with API calls if needed.
 const items = ref<Item[]>([
   // Example seed data
-  toItem({ id: uid(), name: 'Example Server', url: 'kulfi://ID52', port: 8080, note: 'Demo', openInBrowser: true })
+  toItem({ id: uid(), name: 'Example Server', url: 'kulfi://ID52', port: 8080, note: 'Demo', openInBrowser: true, type: 'http' })
 ])
 
 // Dialog state for add / edit
 const add_dialog = reactive({
   show: false,
   editing: false,
-  model: toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true }) as Item
+  model: toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true, type: 'http' }) as Item
 })
 
 // Track whether user is in multi-select mode. Long-press enters this mode.
@@ -160,6 +168,13 @@ const LONG_PRESS_MS = 600
 let lastLongPressId: string | null = null
 let lastLongPressTime: number | null = null
 const LONG_PRESS_IGNORE_MS = 1000 // ignore normal click for 1s after long-press on same item
+
+const connectionTypeOptions = [
+  { label: 'HTTP', value: 'http' },
+  { label: 'TCP', value: 'tcp' },
+  { label: 'UDP', value: 'udp' },
+  { label: 'TCP+UDP', value: 'tcp-udp' },
+]
 
 // Computed helpers
 const hasSelection = computed(() => items.value.some(i => i.selected))
@@ -213,7 +228,7 @@ async function setupParameter() {
 // Open add dialog with empty model
 function openAddDialog() {
   add_dialog.editing = false
-  add_dialog.model = toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true })
+  add_dialog.model = toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true, type: 'http' })
   add_dialog.show = true
 }
 
@@ -267,8 +282,32 @@ function toggleStartStop(item: Item) {
 
   items.value[idx].loading = true
 
-  invoke('browse', { port: items.value[idx].port, url: items.value[idx].url, openBrowser: item.openInBrowser }).then((res) => {
-    console.log('Browse result:', res)
+  const cur = items.value[idx]
+  const connType = cur.type || 'http'
+  let cmd: string
+  let args: Record<string, unknown>
+
+  switch (connType) {
+    case 'tcp':
+      cmd = 'tcp_connect'
+      args = { port: cur.port, url: cur.url }
+      break
+    case 'udp':
+      cmd = 'udp_connect'
+      args = { port: cur.port, url: cur.url }
+      break
+    case 'tcp-udp':
+      cmd = 'tcp_udp_connect'
+      args = { port: cur.port, url: cur.url }
+      break
+    default:
+      cmd = 'browse'
+      args = { port: cur.port, url: cur.url, openBrowser: cur.openInBrowser }
+      break
+  }
+
+  invoke(cmd, args).then((res) => {
+    console.log(`${cmd} result:`, res)
     items.value[idx].loading = false
     if (res === 'Ok') {
       items.value[idx].running = true
@@ -373,7 +412,8 @@ function isValidItemConfigArray(data: ItemConfig[]) {
       typeof item.url === 'string' &&
       (typeof item.port === 'number' || item.port === null) &&
       typeof item.note === 'string' &&
-      typeof item.openInBrowser === 'boolean'
+      typeof item.openInBrowser === 'boolean' &&
+      (item.type === undefined || ['http', 'tcp', 'udp', 'tcp-udp'].includes(item.type))
     );
   });
 }

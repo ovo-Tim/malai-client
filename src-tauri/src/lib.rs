@@ -1,4 +1,7 @@
 mod http_bridge;
+mod tcp_bridge;
+mod tcp_udp_bridge;
+mod udp_bridge;
 use http_bridge::http_bridge;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -69,6 +72,118 @@ async fn browse(
     return "Ok".to_string();
 }
 
+/// Helper to stop an existing task by URL, returning Some(result) if stopped.
+fn try_stop_task(url: &str) -> Option<String> {
+    if let Some(task) = TASKLIST
+        .lock()
+        .expect("Unable to unlock task list")
+        .remove(url)
+    {
+        match task.send(()) {
+            Ok(_) => {
+                println!("Stopped task for {url}");
+                Some("Stopped".to_string())
+            }
+            Err(_) => {
+                println!("Error stopping task");
+                Some("Error stopping task".to_string())
+            }
+        }
+    } else {
+        None
+    }
+}
+
+/// Helper to extract id52 from a kulfi:// URL, returning an error string on failure.
+fn extract_id52(url: &str) -> Result<String, String> {
+    match parse_url(url) {
+        Ok((id52, _)) => Ok(id52.to_string()),
+        Err(e) => {
+            tracing::error!(error = ?e, url, "Failed to parse URL");
+            eprintln!("Failed to parse URL: {e}");
+            Err(format!("Failed to parse URL: {e}"))
+        }
+    }
+}
+
+#[tauri::command]
+async fn tcp_connect(port: u16, url: String) -> String {
+    if let Some(result) = try_stop_task(&url) {
+        return result;
+    }
+
+    let id52 = match extract_id52(&url) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    tokio::spawn(tcp_bridge::tcp_bridge(
+        port,
+        id52,
+        GRACEFUL.clone(),
+        shutdown_rx,
+    ));
+
+    TASKLIST
+        .lock()
+        .expect("Unable to unlock task list")
+        .insert(url, shutdown_tx);
+    "Ok".to_string()
+}
+
+#[tauri::command]
+async fn udp_connect(port: u16, url: String) -> String {
+    if let Some(result) = try_stop_task(&url) {
+        return result;
+    }
+
+    let id52 = match extract_id52(&url) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    tokio::spawn(udp_bridge::udp_bridge(
+        port,
+        id52,
+        GRACEFUL.clone(),
+        shutdown_rx,
+    ));
+
+    TASKLIST
+        .lock()
+        .expect("Unable to unlock task list")
+        .insert(url, shutdown_tx);
+    "Ok".to_string()
+}
+
+#[tauri::command]
+async fn tcp_udp_connect(port: u16, url: String) -> String {
+    if let Some(result) = try_stop_task(&url) {
+        return result;
+    }
+
+    let id52 = match extract_id52(&url) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    tokio::spawn(tcp_udp_bridge::tcp_udp_bridge(
+        port,
+        id52,
+        GRACEFUL.clone(),
+        shutdown_rx,
+    ));
+
+    TASKLIST
+        .lock()
+        .expect("Unable to unlock task list")
+        .insert(url, shutdown_tx);
+    "Ok".to_string()
+}
+
 #[tauri::command]
 fn status(url: String) -> bool {
     TASKLIST
@@ -105,14 +220,14 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![browse, status]);
+        .invoke_handler(tauri::generate_handler![browse, tcp_connect, udp_connect, tcp_udp_connect, status]);
 
     #[cfg(desktop)]
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![browse, status]);
+        .invoke_handler(tauri::generate_handler![browse, tcp_connect, udp_connect, tcp_udp_connect, status]);
 
     #[cfg(mobile)]
     let builder = builder.setup(|app| {
