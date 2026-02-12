@@ -110,30 +110,43 @@ watch(() => dark_mode.value, (v) => {
   $q.dark.set(v)
 })
 
-// Define the item shape
-interface Item {
+// Persisted config shape (stored / exported)
+interface ItemConfig {
   id: string
   name: string
   url: string
   port: number | null
   note: string
+  openInBrowser: boolean
+}
+
+// Full runtime shape (adds transient state)
+interface Item extends ItemConfig {
   running: boolean
   selected: boolean
-  openInBrowser: boolean
-  loading?: boolean  // Loading
+  loading: boolean
+}
+
+function toConfig(item: Item): ItemConfig {
+  const { running, selected, loading, ...config } = item
+  return config
+}
+
+function toItem(config: ItemConfig): Item {
+  return { ...config, running: false, selected: false, loading: false }
 }
 
 // Reactive list of items (local state). Replace with API calls if needed.
 const items = ref<Item[]>([
   // Example seed data
-  { id: uid(), name: 'Example Server', url: 'kulfi://ID52', port: 8080, note: 'Demo', running: false, selected: false, openInBrowser: true, loading: false }
+  toItem({ id: uid(), name: 'Example Server', url: 'kulfi://ID52', port: 8080, note: 'Demo', openInBrowser: true })
 ])
 
 // Dialog state for add / edit
 const add_dialog = reactive({
   show: false,
   editing: false,
-  model: { id: '', name: '', url: '', port: null, note: '', running: false, selected: false, loading: false } as Item
+  model: toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true }) as Item
 })
 
 // Track whether user is in multi-select mode. Long-press enters this mode.
@@ -164,7 +177,7 @@ setupParameter().then((store) => {
     store.set('phone_mode', v)
   })
   watch(() => items.value, (v) => {
-    store.set('items', v)
+    store.set('items', v.map(toConfig))
   }, { deep: true })
 })
 
@@ -187,15 +200,11 @@ async function setupParameter() {
     await store.set('phone_mode', phone_mode.value);
   }
 
-  const _items = await store.get<Item[]>('items');
+  const _items = await store.get<ItemConfig[]>('items');
   if (_items !== undefined) {
-    items.value = _items
-    for (const item of items.value) {
-      item.loading = false
-      item.running = false
-    }
+    items.value = _items.map(toItem)
   } else {
-    await store.set('items', items.value);
+    await store.set('items', items.value.map(toConfig));
   }
 
   return store
@@ -204,7 +213,7 @@ async function setupParameter() {
 // Open add dialog with empty model
 function openAddDialog() {
   add_dialog.editing = false
-  add_dialog.model = { id: '', name: '', url: '', port: null, note: '', running: false, selected: false, openInBrowser: true, loading: false }
+  add_dialog.model = toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true })
   add_dialog.show = true
 }
 
@@ -228,7 +237,7 @@ function saveDialog() {
       items.value[idx] = { ...add_dialog.model }
     }
   } else {
-    const newItem: Item = { ...add_dialog.model, id: uid(), running: false, selected: false, loading: false }
+    const newItem: Item = toItem({ ...toConfig(add_dialog.model), id: uid() })
     items.value.unshift(newItem)
   }
   add_dialog.show = false
@@ -352,24 +361,19 @@ function onListBackgroundClick(ev: MouseEvent) {
   }
 }
 
-function isValidItemArray(data: Item[]) {
-  // Must be an array
+function isValidItemConfigArray(data: ItemConfig[]) {
   if (!Array.isArray(data)) return false;
 
   return data.every(item => {
-    // Basic type checks for required fields
     return (
       typeof item === 'object' &&
       item !== null &&
       typeof item.id === 'string' &&
       typeof item.name === 'string' &&
       typeof item.url === 'string' &&
-      (typeof item.port === 'number' || item.port === null) && // number or null
+      (typeof item.port === 'number' || item.port === null) &&
       typeof item.note === 'string' &&
-      typeof item.running === 'boolean' &&
-      typeof item.selected === 'boolean' &&
-      typeof item.openInBrowser === 'boolean' &&
-      (item.loading === undefined || typeof item.loading === 'boolean') // optional boolean
+      typeof item.openInBrowser === 'boolean'
     );
   });
 }
@@ -385,7 +389,7 @@ function importConf() {
     cancel: true,
   }).onOk(newConf => {
     newConf = JSON.parse(newConf)
-    if (isValidItemArray(newConf)) {
+    if (isValidItemConfigArray(newConf)) {
       $q.dialog({
         title: 'Mode',
         message: 'Choose a mode:',
@@ -401,9 +405,9 @@ function importConf() {
         cancel: true,
       }).onOk(opt => {
         if (opt === 'append') {
-          items.value.push(...newConf)
+          items.value.push(...newConf.map(toItem))
         } else {
-          items.value = newConf
+          items.value = newConf.map(toItem)
         }
       })
     } else {
@@ -417,7 +421,7 @@ function importConf() {
 function exportConf() {
   $q.dialog({
     title: 'Export',
-    message: 'Your configurations: \n' + JSON.stringify(items.value)
+    message: 'Your configurations: \n' + JSON.stringify(items.value.map(toConfig))
   })
 }
 
