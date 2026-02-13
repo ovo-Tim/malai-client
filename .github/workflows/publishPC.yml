@@ -1,6 +1,9 @@
 name: 'publish'
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 # This workflow will trigger on each push to the `release` branch to create or update a GitHub release, build your app, and upload the artifacts to the release.
@@ -58,6 +61,6 @@ jobs:
           tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
           releaseName: 'App v__VERSION__'
           releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: false
-          prerelease: true
+          releaseDraft: true
+          prerelease: false
           args: ${{ matrix.args }}
