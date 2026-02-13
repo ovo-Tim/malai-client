@@ -36,9 +36,9 @@
               <div class="row items-center justify-between">
                 <div>
                   <div class="text-weight-semibold">{{ item.name }}
-                    <q-badge v-for="(entry, i) in item.urls" :key="i"
-                      :color="entry.type === 'http' ? 'blue' : entry.type === 'tcp' ? 'orange' : entry.type === 'udp' ? 'green' : 'purple'"
-                      class="q-ml-sm">{{ (entry.type || 'http').toUpperCase() }}</q-badge>
+                    <q-badge v-for="t in [...new Set(item.urls.map(e => e.type || 'http'))]" :key="t"
+                      :color="t === 'http' ? 'blue' : t === 'tcp' ? 'orange' : t === 'udp' ? 'green' : 'purple'"
+                      class="q-ml-sm">{{ t.toUpperCase() }}</q-badge>
                   </div>
                   <div class="text-caption">Ports: {{item.urls.map(e => e.port).join(', ')
                   }}</div>
