@@ -8,8 +8,36 @@ on:
 
 # This workflow will trigger on each push to the `release` branch to create or update a GitHub release, build your app, and upload the artifacts to the release.
 
+concurrency:
+  group: publish-pc-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: get-version
+        run: |
+          VERSION=$(grep '^version = "' src-tauri/Cargo.toml | head -n 1 | sed -e 's/version = "//' -e 's/"//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Delete existing release if it exists
+        continue-on-error: true
+        run: |
+          gh release delete "app-v${{ steps.get-version.outputs.version }}" --yes --cleanup-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-tauri:
+    needs: cleanup
     permissions:
       contents: write
     strategy:
