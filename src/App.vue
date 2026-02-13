@@ -40,7 +40,7 @@
                       :color="entry.type === 'http' ? 'blue' : entry.type === 'tcp' ? 'orange' : entry.type === 'udp' ? 'green' : 'purple'"
                       class="q-ml-sm">{{ (entry.type || 'http').toUpperCase() }}</q-badge>
                   </div>
-                  <div class="text-caption">Ports: {{ item.urls.map(e => e.port).join(', ')
+                  <div class="text-caption">Ports: {{item.urls.map(e => e.port).join(', ')
                   }}</div>
                 </div>
                 <div class="text-caption q-ml-md">{{ item.note }}</div>
@@ -48,7 +48,7 @@
             </q-item-section>
 
             <!-- Buttons container: ensure buttons are placed in a horizontal (parallel) row -->
-            <q-item-section side style="width: 180px;">
+            <q-item-section side>
               <div class="btn-group">
                 <!-- Square icon buttons (no round), aligned horizontally -->
                 <q-btn dense :icon="item.running ? 'stop' : 'play_arrow'"
@@ -70,7 +70,7 @@
 
         <!-- Dialog for Add / Edit -->
         <q-dialog v-model="add_dialog.show">
-          <q-card style="min-width: 400px;">
+          <q-card class="card">
             <q-card-section>
               <div class="text-h6">{{ add_dialog.editing ? 'Edit item' : 'Add item' }}</div>
             </q-card-section>
@@ -83,10 +83,11 @@
                 <div class="text-subtitle2 q-mt-md q-mb-sm">URL Entries</div>
                 <div v-for="(entry, i) in add_dialog.model.urls" :key="i" class="url-entry q-mb-sm q-pa-sm">
                   <div class="row q-gutter-sm items-end">
-                    <q-input v-model="entry.url" label="URL (kulfi://...)" class="col" dense />
-                    <q-input v-model.number="entry.port" label="Port" type="number" style="width: 100px;" dense />
-                    <q-select v-model="entry.type" :options="connectionTypeOptions" label="Type"
-                      emit-value map-options style="width: 120px;" dense />
+                    <q-input v-model="entry.url" label="URL (kulfi://...)" class="col" dense
+                      style="min-width: 200px;" />
+                    <q-input v-model.number="entry.port" label="Port" type="number" style="width: 80px;" dense />
+                    <q-select v-model="entry.type" :options="connectionTypeOptions" label="Type" emit-value map-options
+                      style="width: 120px;" dense />
                     <q-btn v-if="add_dialog.model.urls.length > 1" dense flat icon="close" color="negative"
                       @click="removeUrlEntry(i)" class="square-btn" />
                   </div>
@@ -608,9 +609,10 @@ function exportConf() {
     prompt: {
       model: configJson,
       type: 'textarea',
+      style: 'height: 100%;',
       readonly: true
     },
-    style: 'min-width: 600px; max-width: 90vw;',
+    style: 'width: 95vw; max-width: 600px; min-height: 50vh;',
     ok: {
       label: 'Close',
       color: 'primary'
@@ -678,5 +680,10 @@ function exportConf() {
 .url-entry {
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 8px;
+}
+
+.card {
+  width: 80%;
+  max-width: 100vw;
 }
 </style>
