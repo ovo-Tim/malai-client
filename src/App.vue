@@ -36,10 +36,11 @@
               <div class="row items-center justify-between">
                 <div>
                   <div class="text-weight-semibold">{{ item.name }}
-                    <q-badge :color="item.type === 'http' ? 'blue' : item.type === 'tcp' ? 'orange' : item.type === 'udp' ? 'green' : 'purple'"
-                      class="q-ml-sm">{{ (item.type || 'http').toUpperCase() }}</q-badge>
+                    <q-badge v-for="(entry, i) in item.urls" :key="i"
+                      :color="entry.type === 'http' ? 'blue' : entry.type === 'tcp' ? 'orange' : entry.type === 'udp' ? 'green' : 'purple'"
+                      class="q-ml-sm">{{ (entry.type || 'http').toUpperCase() }}</q-badge>
                   </div>
-                  <div class="text-caption">Listen port:{{ item.port
+                  <div class="text-caption">Ports: {{ item.urls.map(e => e.port).join(', ')
                   }}</div>
                 </div>
                 <div class="text-caption q-ml-md">{{ item.note }}</div>
@@ -69,7 +70,7 @@
 
         <!-- Dialog for Add / Edit -->
         <q-dialog v-model="add_dialog.show">
-          <q-card>
+          <q-card style="min-width: 400px;">
             <q-card-section>
               <div class="text-h6">{{ add_dialog.editing ? 'Edit item' : 'Add item' }}</div>
             </q-card-section>
@@ -77,13 +78,22 @@
             <q-card-section>
               <q-form @submit.prevent="saveDialog">
                 <q-input v-model="add_dialog.model.name" label="Name" autofocus />
-                <q-input v-model="add_dialog.model.url" label="URL(start with kulfi://)" class="q-mt-sm" />
-                <q-input v-model.number="add_dialog.model.port" label="Listen port" type="number" class="q-mt-sm" />
-                <q-select v-model="add_dialog.model.type" :options="connectionTypeOptions" label="Connection type"
-                  emit-value map-options class="q-mt-sm" />
                 <q-input v-model="add_dialog.model.note" label="Note" type="textarea" class="q-mt-sm" />
-                <q-checkbox v-if="add_dialog.model.type === 'http'" v-model="add_dialog.model.openInBrowser"
-                  label="Open in browser when service starts" class="q-mt-sm" />
+
+                <div class="text-subtitle2 q-mt-md q-mb-sm">URL Entries</div>
+                <div v-for="(entry, i) in add_dialog.model.urls" :key="i" class="url-entry q-mb-sm q-pa-sm">
+                  <div class="row q-gutter-sm items-end">
+                    <q-input v-model="entry.url" label="URL (kulfi://...)" class="col" dense />
+                    <q-input v-model.number="entry.port" label="Port" type="number" style="width: 100px;" dense />
+                    <q-select v-model="entry.type" :options="connectionTypeOptions" label="Type"
+                      emit-value map-options style="width: 120px;" dense />
+                    <q-btn v-if="add_dialog.model.urls.length > 1" dense flat icon="close" color="negative"
+                      @click="removeUrlEntry(i)" class="square-btn" />
+                  </div>
+                  <q-checkbox v-if="entry.type === 'http'" v-model="entry.openInBrowser"
+                    label="Open in browser when service starts" dense class="q-mt-xs" />
+                </div>
+                <q-btn flat dense icon="add" label="Add URL" color="primary" @click="addUrlEntry" class="q-mt-xs" />
               </q-form>
             </q-card-section>
 
@@ -117,8 +127,23 @@ watch(() => dark_mode.value, (v) => {
 
 type ConnectionType = 'http' | 'tcp' | 'udp' | 'tcp-udp'
 
+interface UrlEntry {
+  url: string
+  port: number | null
+  type: ConnectionType
+  openInBrowser: boolean
+}
+
 // Persisted config shape (stored / exported)
 interface ItemConfig {
+  id: string
+  name: string
+  urls: UrlEntry[]
+  note: string
+}
+
+// Old format for migration
+interface OldItemConfig {
   id: string
   name: string
   url: string
@@ -135,26 +160,48 @@ interface Item extends ItemConfig {
   loading: boolean
 }
 
+function defaultUrlEntry(): UrlEntry {
+  return { url: '', port: null, type: 'http', openInBrowser: true }
+}
+
+function migrateOldConfig(old: OldItemConfig): ItemConfig {
+  return {
+    id: old.id,
+    name: old.name,
+    urls: [{ url: old.url, port: old.port, type: old.type || 'http', openInBrowser: old.openInBrowser }],
+    note: old.note,
+  }
+}
+
+function isOldFormat(item: any): item is OldItemConfig {
+  return typeof item === 'object' && item !== null && typeof item.url === 'string' && !Array.isArray(item.urls)
+}
+
 function toConfig(item: Item): ItemConfig {
   const { running, selected, loading, ...config } = item
   return config
 }
 
 function toItem(config: ItemConfig): Item {
-  return { ...config, type: config.type || 'http', running: false, selected: false, loading: false }
+  return { ...config, running: false, selected: false, loading: false }
+}
+
+function normalizeConfig(raw: any): ItemConfig {
+  if (isOldFormat(raw)) return migrateOldConfig(raw)
+  return raw as ItemConfig
 }
 
 // Reactive list of items (local state). Replace with API calls if needed.
 const items = ref<Item[]>([
   // Example seed data
-  toItem({ id: uid(), name: 'Example Server', url: 'kulfi://ID52', port: 8080, note: 'Demo', openInBrowser: true, type: 'http' })
+  toItem({ id: uid(), name: 'Example Server', urls: [{ url: 'kulfi://ID52', port: 8080, type: 'http', openInBrowser: true }], note: 'Demo' })
 ])
 
 // Dialog state for add / edit
 const add_dialog = reactive({
   show: false,
   editing: false,
-  model: toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true, type: 'http' }) as Item
+  model: toItem({ id: '', name: '', urls: [defaultUrlEntry()], note: '' }) as Item
 })
 
 // Track whether user is in multi-select mode. Long-press enters this mode.
@@ -215,9 +262,9 @@ async function setupParameter() {
     await store.set('phone_mode', phone_mode.value);
   }
 
-  const _items = await store.get<ItemConfig[]>('items');
+  const _items = await store.get<any[]>('items');
   if (_items !== undefined) {
-    items.value = _items.map(toItem)
+    items.value = _items.map(raw => toItem(normalizeConfig(raw)))
   } else {
     await store.set('items', items.value.map(toConfig));
   }
@@ -225,17 +272,26 @@ async function setupParameter() {
   return store
 }
 
+// URL entry management in dialog
+function addUrlEntry() {
+  add_dialog.model.urls.push(defaultUrlEntry())
+}
+
+function removeUrlEntry(index: number) {
+  add_dialog.model.urls.splice(index, 1)
+}
+
 // Open add dialog with empty model
 function openAddDialog() {
   add_dialog.editing = false
-  add_dialog.model = toItem({ id: '', name: '', url: '', port: null, note: '', openInBrowser: true, type: 'http' })
+  add_dialog.model = toItem({ id: '', name: '', urls: [defaultUrlEntry()], note: '' })
   add_dialog.show = true
 }
 
 // Open edit dialog with a copy of the item
 function openEditDialog(item: Item) {
   add_dialog.editing = true
-  add_dialog.model = { ...item }
+  add_dialog.model = { ...item, urls: item.urls.map(e => ({ ...e })) }
   add_dialog.show = true
   clearSelection()
 }
@@ -244,12 +300,55 @@ function closeDialog() {
   add_dialog.show = false
 }
 
+// Validate dialog inputs before saving
+function validateDialog(): string | null {
+  if (!add_dialog.model.name.trim()) {
+    return 'Name is required'
+  }
+
+  if (add_dialog.model.urls.length === 0) {
+    return 'At least one URL entry is required'
+  }
+
+  for (let i = 0; i < add_dialog.model.urls.length; i++) {
+    const entry = add_dialog.model.urls[i]
+
+    // Validate URL format
+    if (!entry.url.trim()) {
+      return `URL is required for entry ${i + 1}`
+    }
+    if (!entry.url.trim().startsWith('kulfi://')) {
+      return `URL must start with "kulfi://" for entry ${i + 1}`
+    }
+
+    // Validate port
+    if (entry.port === null || entry.port === undefined) {
+      return `Port is required for entry ${i + 1}`
+    }
+    if (!Number.isInteger(entry.port) || entry.port < 1 || entry.port > 65535) {
+      return `Port must be between 1 and 65535 for entry ${i + 1}`
+    }
+  }
+
+  return null
+}
+
 // Save the dialog: create or update item
 function saveDialog() {
+  // Validate inputs
+  const error = validateDialog()
+  if (error) {
+    $q.notify({
+      type: 'negative',
+      message: error
+    })
+    return
+  }
+
   if (add_dialog.editing) {
     const idx = items.value.findIndex(i => i.id === add_dialog.model.id)
     if (idx !== -1) {
-      items.value[idx] = { ...add_dialog.model }
+      items.value[idx] = { ...add_dialog.model, urls: add_dialog.model.urls.map(e => ({ ...e })) }
     }
   } else {
     const newItem: Item = toItem({ ...toConfig(add_dialog.model), id: uid() })
@@ -275,57 +374,82 @@ function clearSelection() {
   multiSelectMode.value = false
 }
 
-// Toggle start / stop state for an item
-function toggleStartStop(item: Item) {
-  const idx = items.value.findIndex(i => i.id === item.id)
-  if (idx === -1) return
-
-  items.value[idx].loading = true
-
-  const cur = items.value[idx]
-  const connType = cur.type || 'http'
+function invokeForEntry(entry: UrlEntry): Promise<unknown> {
+  const connType = entry.type || 'http'
   let cmd: string
   let args: Record<string, unknown>
 
   switch (connType) {
     case 'tcp':
       cmd = 'tcp_connect'
-      args = { port: cur.port, url: cur.url }
+      args = { port: entry.port, url: entry.url }
       break
     case 'udp':
       cmd = 'udp_connect'
-      args = { port: cur.port, url: cur.url }
+      args = { port: entry.port, url: entry.url }
       break
     case 'tcp-udp':
       cmd = 'tcp_udp_connect'
-      args = { port: cur.port, url: cur.url }
+      args = { port: entry.port, url: entry.url }
       break
     default:
       cmd = 'browse'
-      args = { port: cur.port, url: cur.url, openBrowser: cur.openInBrowser }
+      args = { port: entry.port, url: entry.url, openBrowser: entry.openInBrowser }
       break
   }
 
-  invoke(cmd, args).then((res) => {
-    console.log(`${cmd} result:`, res)
-    items.value[idx].loading = false
-    if (res === 'Ok') {
-      items.value[idx].running = true
-    } else if (res === 'Stopped') {
-      items.value[idx].running = false
-    } else {
+  return invoke(cmd, args)
+}
+
+// Toggle start / stop state for an item (all URL entries together)
+async function toggleStartStop(item: Item) {
+  const idx = items.value.findIndex(i => i.id === item.id)
+  if (idx === -1) return
+
+  items.value[idx].loading = true
+
+  const results = await Promise.allSettled(
+    items.value[idx].urls.map(entry => invokeForEntry(entry))
+  )
+
+  items.value[idx].loading = false
+
+  // Check for rejected promises (actual errors)
+  const rejectedResults = results.filter(r => r.status === 'rejected')
+  if (rejectedResults.length > 0) {
+    const errorMsg = (rejectedResults[0] as PromiseRejectedResult).reason
+    $q.notify({
+      type: 'negative',
+      message: `Failed to start service: ${String(errorMsg)}`
+    })
+    return
+  }
+
+  const allOk = results.every(r => r.status === 'fulfilled' && r.value === 'Ok')
+  const allStopped = results.every(r => r.status === 'fulfilled' && r.value === 'Stopped')
+
+  if (allOk) {
+    items.value[idx].running = true
+  } else if (allStopped) {
+    items.value[idx].running = false
+  } else {
+    // Mixed results — check if any errors
+    const errors = results
+      .filter(r => r.status === 'fulfilled' && r.value !== 'Ok' && r.value !== 'Stopped')
+      .map(r => (r as PromiseFulfilledResult<unknown>).value)
+
+    if (errors.length > 0) {
       $q.notify({
-        type: 'Error',
-        message: String(res)
+        type: 'negative',
+        message: String(errors[0])
       })
     }
-  })
 
-  // setTimeout(() => {
-  //   // Toggle running state. Replace with real start/stop logic (IPC / HTTP / shell) as needed.
-  //   items.value[idx].running = !items.value[idx].running
-  //   items.value[idx].loading = false
-  // }, 1000)
+    // If some started and some stopped, try to determine the dominant state
+    const okCount = results.filter(r => r.status === 'fulfilled' && r.value === 'Ok').length
+    const stoppedCount = results.filter(r => r.status === 'fulfilled' && r.value === 'Stopped').length
+    items.value[idx].running = okCount > stoppedCount
+  }
 }
 
 // Handle click on an item: supports ctrl+click multi-select, multiSelectMode, and normal selection
@@ -400,21 +524,38 @@ function onListBackgroundClick(ev: MouseEvent) {
   }
 }
 
-function isValidItemConfigArray(data: ItemConfig[]) {
+function isValidUrlEntry(entry: any): boolean {
+  return (
+    typeof entry === 'object' && entry !== null &&
+    typeof entry.url === 'string' &&
+    (typeof entry.port === 'number' || entry.port === null) &&
+    (entry.type === undefined || ['http', 'tcp', 'udp', 'tcp-udp'].includes(entry.type)) &&
+    typeof entry.openInBrowser === 'boolean'
+  )
+}
+
+function isValidItemConfigArray(data: any[]) {
   if (!Array.isArray(data)) return false;
 
   return data.every(item => {
-    return (
-      typeof item === 'object' &&
-      item !== null &&
-      typeof item.id === 'string' &&
-      typeof item.name === 'string' &&
-      typeof item.url === 'string' &&
-      (typeof item.port === 'number' || item.port === null) &&
-      typeof item.note === 'string' &&
-      typeof item.openInBrowser === 'boolean' &&
-      (item.type === undefined || ['http', 'tcp', 'udp', 'tcp-udp'].includes(item.type))
-    );
+    if (typeof item !== 'object' || item === null) return false
+    if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.note !== 'string') return false
+
+    // New format: has urls array
+    if (Array.isArray(item.urls)) {
+      return item.urls.every(isValidUrlEntry)
+    }
+
+    // Old format: has url string
+    if (typeof item.url === 'string') {
+      return (
+        (typeof item.port === 'number' || item.port === null) &&
+        typeof item.openInBrowser === 'boolean' &&
+        (item.type === undefined || ['http', 'tcp', 'udp', 'tcp-udp'].includes(item.type))
+      )
+    }
+
+    return false
   });
 }
 
@@ -444,10 +585,11 @@ function importConf() {
         },
         cancel: true,
       }).onOk(opt => {
+        const normalized = newConf.map((raw: any) => toItem(normalizeConfig(raw)))
         if (opt === 'append') {
-          items.value.push(...newConf.map(toItem))
+          items.value.push(...normalized)
         } else {
-          items.value = newConf.map(toItem)
+          items.value = normalized
         }
       })
     } else {
@@ -459,9 +601,30 @@ function importConf() {
   })
 }
 function exportConf() {
+  const configJson = JSON.stringify(items.value.map(toConfig), null, 2)
   $q.dialog({
-    title: 'Export',
-    message: 'Your configurations: \n' + JSON.stringify(items.value.map(toConfig))
+    title: 'Export Configuration',
+    message: 'Copy the configuration below:',
+    prompt: {
+      model: configJson,
+      type: 'textarea',
+      readonly: true
+    },
+    style: 'min-width: 600px; max-width: 90vw;',
+    ok: {
+      label: 'Close',
+      color: 'primary'
+    }
+  }).onOk(() => {
+    // Copy to clipboard
+    navigator.clipboard.writeText(configJson).then(() => {
+      $q.notify({
+        type: 'positive',
+        message: 'Configuration copied to clipboard'
+      })
+    }).catch(() => {
+      // Silently fail if clipboard not available
+    })
   })
 }
 
@@ -509,5 +672,11 @@ function exportConf() {
 .phone-mode-list {
   display: flex;
   flex-direction: column-reverse;
+}
+
+/* URL entry card in the dialog */
+.url-entry {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
 }
 </style>

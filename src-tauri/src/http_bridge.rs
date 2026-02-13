@@ -1,22 +1,24 @@
+use eyre::WrapErr;
 #[tracing::instrument(skip_all)]
 pub async fn http_bridge(
     port: u16,
     proxy_target: Option<String>,
     graceful: kulfi_utils::Graceful,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    startup_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
     post_start: impl FnOnce(u16) -> eyre::Result<()>,
 ) {
-    use eyre::WrapErr;
-
     let listener = match tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
         .wrap_err_with(|| {
-            format!("can not listen on port {port}, is it busy, or you do not have root access?")
+            format!("Can not listen on port {port}, is it busy or you do not have permission?")
         }) {
         Ok(listener) => listener,
         Err(e) => {
-            eprintln!("Failed to bind to port {port}: {e:?}");
-            std::process::exit(1);
+            let error_msg = format!("Failed to bind HTTP to port {port}: {e}");
+            eprintln!("{error_msg}");
+            let _ = startup_tx.send(Err(error_msg));
+            return;
         }
     };
 
@@ -26,11 +28,15 @@ pub async fn http_bridge(
     match post_start(port) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("Failed to run post start function: {e:?}");
+            let error_msg = format!("Failed to open browser: {e}");
+            eprintln!("{error_msg}");
+            let _ = startup_tx.send(Err(error_msg));
+            return;
         }
     }
 
     println!("Listening on http://127.0.0.1:{port}");
+    let _ = startup_tx.send(Ok(()));
 
     let peer_connections = kulfi_utils::PeerStreamSenders::default();
 

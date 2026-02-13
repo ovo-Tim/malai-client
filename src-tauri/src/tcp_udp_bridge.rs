@@ -3,6 +3,7 @@ pub async fn tcp_udp_bridge(
     proxy_target: String,
     graceful: kulfi_utils::Graceful,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    startup_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
 ) {
     use eyre::WrapErr;
     use std::collections::HashMap;
@@ -13,27 +14,32 @@ pub async fn tcp_udp_bridge(
     // Bind TCP and UDP on the same port (different protocols, so no conflict)
     let tcp_listener = match tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
-        .wrap_err_with(|| format!("can not listen TCP on port {port}"))
+        .wrap_err_with(|| format!("Can not listen TCP on port {port}"))
     {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("Failed to bind TCP to port {port}: {e:?}");
+            let error_msg = format!("Failed to bind TCP to port {port}: {e}");
+            eprintln!("{error_msg}");
+            let _ = startup_tx.send(Err(error_msg));
             return;
         }
     };
 
     let udp_socket = match tokio::net::UdpSocket::bind(format!("127.0.0.1:{port}"))
         .await
-        .wrap_err_with(|| format!("can not listen UDP on port {port}"))
+        .wrap_err_with(|| format!("Can not listen UDP on port {port}"))
     {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            eprintln!("Failed to bind UDP to port {port}: {e:?}");
+            let error_msg = format!("Failed to bind UDP to port {port}: {e}");
+            eprintln!("{error_msg}");
+            let _ = startup_tx.send(Err(error_msg));
             return;
         }
     };
 
     println!("TCP+UDP bridge listening on 127.0.0.1:{port}");
+    let _ = startup_tx.send(Ok(()));
 
     let tcp_peer_connections = kulfi_utils::PeerStreamSenders::default();
     let udp_peer_connections = kulfi_utils::PeerStreamSenders::default();

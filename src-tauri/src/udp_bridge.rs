@@ -8,23 +8,27 @@ pub async fn udp_bridge(
     proxy_target: String,
     graceful: kulfi_utils::Graceful,
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+    startup_tx: tokio::sync::oneshot::Sender<Result<(), String>>,
 ) {
     use eyre::WrapErr;
 
     let socket = match tokio::net::UdpSocket::bind(format!("127.0.0.1:{port}"))
         .await
         .wrap_err_with(|| {
-            format!("can not listen on UDP port {port}, is it busy, or you do not have root access?")
+            format!("Can not listen on UDP port {port}, is it busy or you do not have permission?")
         }) {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            eprintln!("Failed to bind UDP to port {port}: {e:?}");
+            let error_msg = format!("Failed to bind UDP to port {port}: {e}");
+            eprintln!("{error_msg}");
+            let _ = startup_tx.send(Err(error_msg));
             return;
         }
     };
 
     let local_addr = socket.local_addr().unwrap();
     println!("UDP bridge listening on {local_addr}");
+    let _ = startup_tx.send(Ok(()));
 
     let peer_connections = kulfi_utils::PeerStreamSenders::default();
     let sessions: Arc<Mutex<HashMap<SocketAddr, tokio::sync::mpsc::Sender<Vec<u8>>>>> =

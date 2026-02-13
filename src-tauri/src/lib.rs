@@ -47,11 +47,14 @@ async fn browse(
 
     let path = path.to_string();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (startup_tx, startup_rx) = oneshot::channel();
+
     tokio::spawn(http_bridge(
         port,
         Some(id52.to_string()),
         GRACEFUL.clone(),
         shutdown_rx,
+        startup_tx,
         move |port: u16| {
             if open_browser {
                 let url = format!("http://127.0.0.1:{port}/{path}");
@@ -65,11 +68,18 @@ async fn browse(
         },
     ));
 
-    TASKLIST
-        .lock()
-        .expect("Unable to unlock task list")
-        .insert(url, shutdown_tx);
-    return "Ok".to_string();
+    // Wait for startup result
+    match startup_rx.await {
+        Ok(Ok(())) => {
+            TASKLIST
+                .lock()
+                .expect("Unable to unlock task list")
+                .insert(url, shutdown_tx);
+            "Ok".to_string()
+        }
+        Ok(Err(e)) => e,
+        Err(_) => "Failed to start HTTP bridge: channel closed".to_string(),
+    }
 }
 
 /// Helper to stop an existing task by URL, returning Some(result) if stopped.
@@ -118,18 +128,28 @@ async fn tcp_connect(port: u16, url: String) -> String {
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (startup_tx, startup_rx) = oneshot::channel();
+
     tokio::spawn(tcp_bridge::tcp_bridge(
         port,
         id52,
         GRACEFUL.clone(),
         shutdown_rx,
+        startup_tx,
     ));
 
-    TASKLIST
-        .lock()
-        .expect("Unable to unlock task list")
-        .insert(url, shutdown_tx);
-    "Ok".to_string()
+    // Wait for startup result
+    match startup_rx.await {
+        Ok(Ok(())) => {
+            TASKLIST
+                .lock()
+                .expect("Unable to unlock task list")
+                .insert(url, shutdown_tx);
+            "Ok".to_string()
+        }
+        Ok(Err(e)) => e,
+        Err(_) => "Failed to start TCP bridge: channel closed".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -144,18 +164,28 @@ async fn udp_connect(port: u16, url: String) -> String {
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (startup_tx, startup_rx) = oneshot::channel();
+
     tokio::spawn(udp_bridge::udp_bridge(
         port,
         id52,
         GRACEFUL.clone(),
         shutdown_rx,
+        startup_tx,
     ));
 
-    TASKLIST
-        .lock()
-        .expect("Unable to unlock task list")
-        .insert(url, shutdown_tx);
-    "Ok".to_string()
+    // Wait for startup result
+    match startup_rx.await {
+        Ok(Ok(())) => {
+            TASKLIST
+                .lock()
+                .expect("Unable to unlock task list")
+                .insert(url, shutdown_tx);
+            "Ok".to_string()
+        }
+        Ok(Err(e)) => e,
+        Err(_) => "Failed to start UDP bridge: channel closed".to_string(),
+    }
 }
 
 #[tauri::command]
@@ -170,18 +200,28 @@ async fn tcp_udp_connect(port: u16, url: String) -> String {
     };
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (startup_tx, startup_rx) = oneshot::channel();
+
     tokio::spawn(tcp_udp_bridge::tcp_udp_bridge(
         port,
         id52,
         GRACEFUL.clone(),
         shutdown_rx,
+        startup_tx,
     ));
 
-    TASKLIST
-        .lock()
-        .expect("Unable to unlock task list")
-        .insert(url, shutdown_tx);
-    "Ok".to_string()
+    // Wait for startup result
+    match startup_rx.await {
+        Ok(Ok(())) => {
+            TASKLIST
+                .lock()
+                .expect("Unable to unlock task list")
+                .insert(url, shutdown_tx);
+            "Ok".to_string()
+        }
+        Ok(Err(e)) => e,
+        Err(_) => "Failed to start TCP+UDP bridge: channel closed".to_string(),
+    }
 }
 
 #[tauri::command]
