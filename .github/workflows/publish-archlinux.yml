@@ -1,0 +1,117 @@
+name: "publish archlinux"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: publish-archlinux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  publish-archlinux:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    permissions:
+      contents: write
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            git \
+            nodejs npm \
+            rust \
+            webkit2gtk-4.1 \
+            pkg-config \
+            openssl \
+            libappindicator-gtk3 \
+            librsvg \
+            patchelf \
+            glib2
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10
+
+      - uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: get-version
+        run: |
+          VERSION=$(grep '^version = "' src-tauri/Cargo.toml | head -n 1 | sed -e 's/version = "//' -e 's/"//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build Tauri app
+        run: pnpm tauri build
+
+      - name: Create PKGBUILD and package
+        run: |
+          VERSION="${{ steps.get-version.outputs.version }}"
+          BINARY_PATH="src-tauri/target/release/malai-client"
+
+          mkdir -p archpkg/src
+
+          cat > archpkg/src/malai-client.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Malai Client
+          Comment=Malai peer connection manager using Kulfi protocol
+          Exec=malai-client
+          Terminal=false
+          Type=Application
+          Categories=Network;
+          DESKTOP
+
+          cp "$BINARY_PATH" archpkg/src/
+          for icon in src-tauri/icons/32x32.png src-tauri/icons/128x128.png; do
+            [ -f "$icon" ] && cp "$icon" archpkg/src/
+          done
+
+          cat > archpkg/PKGBUILD << PKGEOF
+          # Maintainer: ovo-tim
+          pkgname=malai-client
+          pkgver=${VERSION}
+          pkgrel=1
+          pkgdesc="A Tauri app for managing and connecting to malai peers using the Kulfi protocol"
+          arch=('x86_64')
+          url="https://github.com/ovo-Tim/malai-client"
+          license=('MIT')
+          depends=('webkit2gtk-4.1' 'openssl' 'glib2')
+          optdepends=('libappindicator-gtk3: for system tray support')
+          source=()
+
+          package() {
+            install -Dm755 "\${srcdir}/malai-client" "\${pkgdir}/usr/bin/malai-client"
+            install -Dm644 "\${srcdir}/malai-client.desktop" "\${pkgdir}/usr/share/applications/malai-client.desktop"
+            [ -f "\${srcdir}/128x128.png" ] && install -Dm644 "\${srcdir}/128x128.png" "\${pkgdir}/usr/share/icons/hicolor/128x128/apps/malai-client.png"
+            [ -f "\${srcdir}/32x32.png" ] && install -Dm644 "\${srcdir}/32x32.png" "\${pkgdir}/usr/share/icons/hicolor/32x32/apps/malai-client.png"
+          }
+          PKGEOF
+
+          useradd -m builder
+          chown -R builder:builder archpkg
+
+          cd archpkg
+          su builder -c "makepkg -f --nodeps --noextract"
+
+          mv *.pkg.tar.zst ../
+
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          name: App v${{ steps.get-version.outputs.version }}
+          tag_name: app-v${{ steps.get-version.outputs.version }}
+          body: "See the assets to download this version and install."
+          draft: true
+          prerelease: false
+          files: |
+            ./*.pkg.tar.zst
