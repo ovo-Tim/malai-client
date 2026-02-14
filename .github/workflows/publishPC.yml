@@ -114,7 +114,13 @@ jobs:
             libappindicator-gtk3 \
             librsvg \
             patchelf \
-            glib2
+            glib2 \
+            cairo \
+            desktop-file-utils \
+            gdk-pixbuf2 \
+            gtk3 \
+            hicolor-icon-theme \
+            pango
 
       - name: Install pnpm
         run: npm install -g pnpm@10
@@ -124,31 +130,32 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Build frontend
-        run: pnpm build
-
-      - name: Build binary
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+      - name: Build deb package
+        run: pnpm tauri build -b deb
 
       - name: Create PKGBUILD and package
         run: |
           VERSION="${{ needs.cleanup.outputs.version }}"
-          mkdir -p archpkg/src
+          DEB_FILE="src-tauri/target/release/bundle/deb/malai-client_${VERSION}_amd64.deb"
 
-          cat > archpkg/src/malai-client.desktop << 'DESKTOP'
-          [Desktop Entry]
-          Name=Malai Client
-          Comment=Malai peer connection manager using Kulfi protocol
-          Exec=malai-client
-          Terminal=false
-          Type=Application
-          Categories=Network;
-          DESKTOP
+          mkdir -p archpkg
+          cp "$DEB_FILE" archpkg/
 
-          cp src-tauri/target/release/malai-client archpkg/src/
-          for icon in src-tauri/icons/32x32.png src-tauri/icons/128x128.png; do
-            [ -f "$icon" ] && cp "$icon" archpkg/src/
-          done
+          cat > archpkg/malai-client.install << 'INSTALL'
+          post_install() {
+            gtk-update-icon-cache -q -t -f usr/share/icons/hicolor
+            update-desktop-database -q
+          }
+
+          post_upgrade() {
+            post_install
+          }
+
+          post_remove() {
+            gtk-update-icon-cache -q -t -f usr/share/icons/hicolor
+            update-desktop-database -q
+          }
+          INSTALL
 
           cat > archpkg/PKGBUILD << PKGEOF
           # Maintainer: ovo-tim
@@ -159,22 +166,21 @@ jobs:
           arch=('x86_64')
           url="https://github.com/ovo-Tim/malai-client"
           license=('MIT')
-          depends=('webkit2gtk-4.1' 'openssl' 'glib2')
-          optdepends=('libappindicator-gtk3: for system tray support')
-          source=()
+          depends=('cairo' 'desktop-file-utils' 'gdk-pixbuf2' 'glib2' 'gtk3' 'hicolor-icon-theme' 'pango' 'webkit2gtk-4.1')
+          options=('!strip' '!emptydirs')
+          install=\${pkgname}.install
+          source=("malai-client_${VERSION}_amd64.deb")
+          sha256sums=('SKIP')
 
           package() {
-            install -Dm755 "\${srcdir}/malai-client" "\${pkgdir}/usr/bin/malai-client"
-            install -Dm644 "\${srcdir}/malai-client.desktop" "\${pkgdir}/usr/share/applications/malai-client.desktop"
-            [ -f "\${srcdir}/128x128.png" ] && install -Dm644 "\${srcdir}/128x128.png" "\${pkgdir}/usr/share/icons/hicolor/128x128/apps/malai-client.png"
-            [ -f "\${srcdir}/32x32.png" ] && install -Dm644 "\${srcdir}/32x32.png" "\${pkgdir}/usr/share/icons/hicolor/32x32/apps/malai-client.png"
+            tar -xf data.tar.gz -C "\${pkgdir}"
           }
           PKGEOF
 
           useradd -m builder
           chown -R builder:builder archpkg
           cd archpkg
-          su builder -c "makepkg -f --nodeps --noextract"
+          su builder -c "makepkg -f"
           mv *.pkg.tar.zst ../
 
       - name: Publish
